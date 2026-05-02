@@ -1,0 +1,33 @@
+# Database files (generated)
+*.db
+*.sqlite
+*.sqlite3
+
+# JSON data files
+darsi_dirty.json
+darsi_clean.json
+
+# Reports
+cleaning_report.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.Python
+
+# Environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
