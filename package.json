@@ -1,0 +1,19 @@
+{
+  "name": "darsi-v2",
+  "version": "2.0.0",
+  "description": "DARSI - Decentralized Autonomous Review System Infrastructure",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/start.js",
+    "start:windows": "npm start",
+    "start:unix": "npm start",
+    "dev": "npm start",
+    "stop": "echo Use Ctrl+C to stop all services"
+  },
+  "keywords": ["darsi", "healthcare", "decentralized"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

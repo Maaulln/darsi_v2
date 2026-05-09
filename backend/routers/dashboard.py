@@ -4,10 +4,7 @@ Aggregates KPIs, 30-day patient trend, payment distribution, and alerts.
 """
 from fastapi import APIRouter
 from datetime import datetime, timedelta
-try:
-    from ..database import query, query_one
-except ImportError:
-    from database import query, query_one
+from database import query, query_one
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -31,55 +28,52 @@ def get_dashboard():
 
     # ── KPIs ────────────────────────────────────────────────────────────────
     pasien_aktif = query_one(
-        "SELECT COUNT(*) AS cnt FROM rawat_inap WHERE status='Aktif'"
+        "SELECT count() AS cnt FROM rawat_inap WHERE status='Aktif' GROUP ALL"
     ).get("cnt", 0)
 
-    bor_row = query_one(
-        """SELECT
-             COUNT(*) AS total,
-             SUM(CASE WHEN status='Penuh' OR status='Terisi' THEN 1 ELSE 0 END) AS terisi
-           FROM kamar"""
-    )
-    total_tt = bor_row.get("total", 1) or 1
-    terisi_tt = bor_row.get("terisi", 0) or 0
+    bor_total_row = query_one("SELECT count() AS total FROM kamar GROUP ALL")
+    bor_terisi_row = query_one("SELECT count() AS terisi FROM kamar WHERE status='Penuh' OR status='Terisi' GROUP ALL")
+    
+    total_tt = bor_total_row.get("total", 1) or 1
+    terisi_tt = bor_terisi_row.get("terisi", 0) or 0
     bor = round(terisi_tt / total_tt * 100, 1)
 
     pendapatan_row = query_one(
-        """SELECT COALESCE(SUM(total_tagihan), 0) AS total
+        """SELECT math::sum(total_tagihan) AS total
            FROM tagihan
            WHERE status_bayar='Lunas'
-             AND tanggal_bayar >= ?""",
+             AND tanggal_bayar >= ?
+           GROUP ALL""",
         (month_start,),
     )
     pendapatan_bulan = pendapatan_row.get("total", 0)
 
     alos_row = query_one(
-        "SELECT ROUND(AVG(lama_rawat), 1) AS alos FROM rawat_inap WHERE lama_rawat IS NOT NULL"
+        "SELECT math::mean(lama_rawat) AS alos FROM rawat_inap WHERE lama_rawat != NONE GROUP ALL"
     )
-    alos = alos_row.get("alos") or 0.0
+    alos = round(alos_row.get("alos") or 0.0, 1)
 
     # ── Patient trend (last 30 days) ─────────────────────────────────────────
     trend_rows = query(
-        """SELECT tanggal_masuk AS date, COUNT(*) AS rawat_inap
+        """SELECT tanggal_masuk AS date, count() AS rawat_inap
            FROM rawat_inap
            WHERE tanggal_masuk >= ?
            GROUP BY tanggal_masuk
-           ORDER BY tanggal_masuk""",
+           ORDER BY date""",
         (thirty_ago,),
     )
     # Format date labels to "D Mon" style
     def fmt_label(iso: str) -> str:
         try:
             d = datetime.strptime(iso, "%Y-%m-%d")
-            return d.strftime("%-d %b")
+            return d.strftime("%d %b")
         except Exception:
             return iso
 
     patient_trend = [
         {
-            "date": fmt_label(r["date"]),
-            "rawatInap": r["rawat_inap"],
-            # rawat jalan not in DB — use 0 or omit
+            "date": fmt_label(r.get("date", "")),
+            "rawatInap": r.get("rawat_inap", 0),
             "rawatJalan": 0,
         }
         for r in trend_rows
@@ -92,17 +86,17 @@ def get_dashboard():
         "Umum": "#10B981",
     }
     pay_rows = query(
-        """SELECT penjamin, COUNT(*) AS cnt
+        """SELECT penjamin, count() AS cnt
            FROM pasien
-           WHERE penjamin IS NOT NULL
+           WHERE penjamin != NONE
            GROUP BY penjamin"""
     )
-    total_p = sum(r["cnt"] for r in pay_rows) or 1
+    total_p = sum(r.get("cnt", 0) for r in pay_rows) or 1
     payment_dist = [
         {
-            "name": r["penjamin"],
-            "value": round(r["cnt"] / total_p * 100, 1),
-            "color": COLORS.get(r["penjamin"], "#94A3B8"),
+            "name": r.get("penjamin", "Unknown"),
+            "value": round(r.get("cnt", 0) / total_p * 100, 1),
+            "color": COLORS.get(r.get("penjamin"), "#94A3B8"),
         }
         for r in pay_rows
     ]
@@ -118,7 +112,7 @@ def get_dashboard():
         })
 
     pending_klaim = query_one(
-        "SELECT COUNT(*) AS cnt FROM klaim_asuransi WHERE status_klaim='Proses'"
+        "SELECT count() AS cnt FROM klaim_asuransi WHERE status_klaim='Proses' GROUP ALL"
     ).get("cnt", 0)
     if pending_klaim > 0:
         alerts.append({
@@ -128,7 +122,7 @@ def get_dashboard():
         })
 
     belum_bayar = query_one(
-        "SELECT COUNT(*) AS cnt FROM tagihan WHERE status_bayar='Belum Bayar'"
+        "SELECT count() AS cnt FROM tagihan WHERE status_bayar='Belum Bayar' GROUP ALL"
     ).get("cnt", 0)
     if belum_bayar > 0:
         alerts.append({

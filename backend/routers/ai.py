@@ -5,10 +5,7 @@ Builds a prompt from live DB data and calls Ollama (gemma4:e2b).
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from datetime import datetime
-try:
-    from ..database import query_one
-except ImportError:
-    from database import query_one
+from database import query_one
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -26,10 +23,13 @@ def get_recommendation(req: RecommendRequest):
     try:
         import ollama
     except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="Ollama library not installed. Run: pip install ollama",
-        )
+        return {
+            "recommendation": "**Ollama belum terinstall.**\n\nSistem AI lokal tidak aktif. Silakan install ollama dan jalankan `ollama serve` untuk mengaktifkan fitur ini.",
+            "confidence": 0,
+            "model": OLLAMA_MODEL,
+            "generated_at": datetime.now().isoformat(),
+            "context": req.context,
+        }
 
     # ── Gather live context from DB ──────────────────────────────────────────
     ctx = req.data if req.data else _gather_context()
@@ -45,10 +45,13 @@ def get_recommendation(req: RecommendRequest):
         )
         text = response["message"]["content"]
     except Exception as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Ollama error: {str(e)}. Pastikan Ollama berjalan: `ollama serve`",
-        )
+        return {
+            "recommendation": f"**Ollama gagal memproses.**\n\nPastikan service Ollama berjalan (`ollama serve`) dan model `{OLLAMA_MODEL}` sudah di-pull. Error: {str(e)}",
+            "confidence": 0,
+            "model": OLLAMA_MODEL,
+            "generated_at": datetime.now().isoformat(),
+            "context": req.context,
+        }
 
     return {
         "recommendation": text,
@@ -82,43 +85,42 @@ def ai_health():
 
 
 def _gather_context() -> dict:
-    """Pull key metrics from DB for prompt context."""
-    pasien_aktif = query_one(
-        "SELECT COUNT(*) AS cnt FROM rawat_inap WHERE status='Aktif'"
-    ).get("cnt", 0)
+    """Pull key metrics from DB for prompt context using python aggregation."""
+    from database import select
+    from collections import defaultdict
+    
+    rawat_inap = select("rawat_inap") or []
+    kamar = select("kamar") or []
+    tagihan = select("tagihan") or []
+    klaim = select("klaim_asuransi") or []
 
-    bor_row = query_one(
-        """SELECT
-             COUNT(*) AS total,
-             SUM(CASE WHEN status IN ('Penuh','Terisi') THEN 1 ELSE 0 END) AS terisi
-           FROM kamar"""
-    )
-    total_tt = bor_row.get("total", 1) or 1
-    terisi   = bor_row.get("terisi", 0) or 0
-    bor      = round(terisi / total_tt * 100, 1)
+    pasien_aktif = 0
+    total_lama_rawat = 0
+    ri_dengan_lama = 0
+    diag_counts = defaultdict(int)
 
-    alos = query_one(
-        "SELECT ROUND(AVG(lama_rawat),1) AS v FROM rawat_inap WHERE lama_rawat IS NOT NULL"
-    ).get("v", 0.0)
+    for ri in rawat_inap:
+        if ri.get("status") == "Aktif":
+            pasien_aktif += 1
+        lama = float(ri.get("lama_rawat", 0) or 0)
+        if lama > 0:
+            total_lama_rawat += lama
+            ri_dengan_lama += 1
+        diag = ri.get("diagnosa")
+        if diag:
+            diag_counts[diag] += 1
 
-    belum_bayar = query_one(
-        "SELECT COUNT(*) AS cnt FROM tagihan WHERE status_bayar='Belum Bayar'"
-    ).get("cnt", 0)
+    alos = round(total_lama_rawat / ri_dengan_lama, 1) if ri_dengan_lama else 0.0
+    
+    top_diagnosa = max(diag_counts.items(), key=lambda x: x[1]) if diag_counts else ("-", 0)
 
-    klaim_pending = query_one(
-        "SELECT COUNT(*) AS cnt FROM klaim_asuransi WHERE status_klaim='Proses'"
-    ).get("cnt", 0)
+    total_tt = len(kamar) or 1
+    terisi = sum(1 for k in kamar if k.get("status") in ("Penuh", "Terisi"))
+    bor = round(terisi / total_tt * 100, 1)
 
-    pendapatan = query_one(
-        """SELECT COALESCE(SUM(total_tagihan),0) AS v
-           FROM tagihan WHERE status_bayar='Lunas'
-             AND tanggal_bayar >= date('now','start of month')"""
-    ).get("v", 0)
-
-    top_diag = query_one(
-        """SELECT diagnosa, COUNT(*) AS cnt FROM rawat_inap
-           WHERE diagnosa IS NOT NULL GROUP BY diagnosa ORDER BY cnt DESC LIMIT 1"""
-    )
+    belum_bayar = sum(1 for t in tagihan if t.get("status_bayar") == "Belum Bayar")
+    klaim_pending = sum(1 for k in klaim if k.get("status_klaim") == "Proses")
+    pendapatan = sum(float(t.get("total_tagihan", 0)) for t in tagihan if t.get("status_bayar") == "Lunas")
 
     return {
         "pasien_aktif":   pasien_aktif,
@@ -127,8 +129,8 @@ def _gather_context() -> dict:
         "tagihan_pending": belum_bayar,
         "klaim_pending":  klaim_pending,
         "pendapatan_bulan": pendapatan,
-        "top_diagnosa":   top_diag.get("diagnosa", "-"),
-        "top_diagnosa_cnt": top_diag.get("cnt", 0),
+        "top_diagnosa": top_diagnosa[0],
+        "top_diagnosa_cnt": top_diagnosa[1],
     }
 
 

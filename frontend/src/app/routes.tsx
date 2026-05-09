@@ -5,9 +5,11 @@ import { DashboardPage } from './pages/DashboardPage';
 import { ResourcePage } from './pages/ResourcePage';
 import { CostInsurancePage } from './pages/CostInsurancePage';
 import { PatientExperiencePage } from './pages/PatientExperiencePage';
+import { SuperadminPage } from './pages/SuperadminPage';
 
 export const router = createBrowserRouter([
   { path: '/login', Component: LoginPage },
+  { path: '/superadmin', Component: SuperadminPage },
   {
     path: '/',
     Component: Layout,

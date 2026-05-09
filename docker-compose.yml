@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # SurrealDB Service
+  surrealdb:
+    image: surrealdb/surrealdb:latest
+    container_name: darsi_surrealdb
+    ports:
+      - "8000:8000"
+    environment:
+      - SURREAL_USER=root
+      - SURREAL_PASS=root
+    volumes:
+      - surrealdb_data:/var/lib/surrealdb
+    # Use memory-based storage for development
+    command: start --user root --pass root memory
+    networks:
+      - darsi_network
+    restart: unless-stopped
+
+  # FastAPI Backend Service (Optional)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: darsi_backend
+    ports:
+      - "8001:8000"
+    environment:
+      - SURREALDB_HOST=http://surrealdb:8000
+      - SURREALDB_USER=root
+      - SURREALDB_PASS=root
+      - SURREALDB_NS=darsi
+      - SURREALDB_DB=hospital
+    depends_on:
+      - surrealdb
+    volumes:
+      - ./backend:/app
+    networks:
+      - darsi_network
+    restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  surrealdb_data:
+    driver: local
+
+networks:
+  darsi_network:
+    driver: bridge

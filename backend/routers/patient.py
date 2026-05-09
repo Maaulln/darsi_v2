@@ -3,10 +3,8 @@ routers/patient.py — /api/patient-experience
 ALOS, readmission proxy, patient funnel, satisfaction (static).
 """
 from fastapi import APIRouter
-try:
-    from ..database import query, query_one
-except ImportError:
-    from database import query, query_one
+from database import select
+from collections import defaultdict
 
 router = APIRouter(prefix="/api/patient-experience", tags=["patient"])
 
@@ -20,83 +18,91 @@ STATUS_COLOR = {
 
 @router.get("")
 def get_patient_experience():
-    # ── Overall KPIs ──────────────────────────────────────────────────────────
-    total_ri = query_one(
-        "SELECT COUNT(*) AS cnt FROM rawat_inap"
-    ).get("cnt", 0)
+    ri_all = select("rawat_inap") or []
+    
+    total_ri = len(ri_all)
+    
+    # Calculate ALOS (Average Length of Stay)
+    total_selesai = 0
+    total_aktif = 0
+    total_lama_rawat = 0
+    selesai_with_lama = 0
+    
+    # Readmission proxy: Group by id_pasien
+    pasien_counts = defaultdict(int)
+    diag_stats = defaultdict(lambda: {"lama_rawat": 0, "cases": 0})
+    readmit_diag_counts = defaultdict(int)
+    
+    for ri in ri_all:
+        status = ri.get("status", "")
+        lama_rawat = float(ri.get("lama_rawat", 0) or 0)
+        diagnosa = ri.get("diagnosa", "Umum")
+        id_pasien = ri.get("id_pasien")
+        
+        if id_pasien:
+            pasien_counts[id_pasien] += 1
+            
+        if status == "Selesai":
+            total_selesai += 1
+            if lama_rawat > 0:
+                total_lama_rawat += lama_rawat
+                selesai_with_lama += 1
+        elif status == "Aktif":
+            total_aktif += 1
+            
+        if lama_rawat > 0:
+            diag_stats[diagnosa]["lama_rawat"] += lama_rawat
+            diag_stats[diagnosa]["cases"] += 1
 
-    alos_row = query_one(
-        """SELECT ROUND(AVG(lama_rawat), 1) AS alos
-           FROM rawat_inap
-           WHERE lama_rawat IS NOT NULL AND status='Selesai'"""
-    )
-    alos = alos_row.get("alos") or 0.0
+    alos = round(total_lama_rawat / selesai_with_lama, 1) if selesai_with_lama else 0.0
 
-    # Readmission proxy: pasien yang muncul >1x dalam rawat_inap
-    readmit_row = query_one(
-        """SELECT COUNT(*) AS cnt FROM (
-             SELECT id_pasien FROM rawat_inap
-             GROUP BY id_pasien HAVING COUNT(*) > 1
-           )"""
-    )
-    readmit_pasien = readmit_row.get("cnt", 0)
-    total_pasien   = query_one("SELECT COUNT(DISTINCT id_pasien) AS cnt FROM rawat_inap").get("cnt", 1) or 1
+    readmit_pasien = sum(1 for count in pasien_counts.values() if count > 1)
+    total_pasien = len(pasien_counts) or 1
     readmission_rate = round(readmit_pasien / total_pasien * 100, 1)
+    
+    # Readmission by diagnosa
+    for ri in ri_all:
+        if pasien_counts[ri.get("id_pasien")] > 1:
+            readmit_diag_counts[ri.get("diagnosa", "Umum")] += 1
 
     # ── Patient funnel ─────────────────────────────────────────────────────────
-    total_selesai = query_one(
-        "SELECT COUNT(*) AS cnt FROM rawat_inap WHERE status='Selesai'"
-    ).get("cnt", 0)
-    total_aktif   = query_one(
-        "SELECT COUNT(*) AS cnt FROM rawat_inap WHERE status='Aktif'"
-    ).get("cnt", 0)
-
     funnel = [
         {
             "stage": "Total Rawat Inap",
             "count": total_ri,
-            "pct":   100.0,
+            "pct": 100.0,
             "color": "#1E3A5F",
-            "sub":   "Total seluruh rekam medis",
+            "sub": "Total seluruh rekam medis",
         },
         {
             "stage": "Sudah Selesai",
             "count": total_selesai,
-            "pct":   round(total_selesai / (total_ri or 1) * 100, 1),
+            "pct": round(total_selesai / (total_ri or 1) * 100, 1),
             "color": "#0EA5E9",
-            "sub":   "Pasien keluar / discharge",
+            "sub": "Pasien keluar / discharge",
         },
         {
             "stage": "Masih Aktif",
             "count": total_aktif,
-            "pct":   round(total_aktif / (total_ri or 1) * 100, 1),
+            "pct": round(total_aktif / (total_ri or 1) * 100, 1),
             "color": "#10B981",
-            "sub":   "Pasien masih dirawat",
+            "sub": "Pasien masih dirawat",
         },
         {
             "stage": "Readmisi (proxy)",
             "count": readmit_pasien,
-            "pct":   round(readmit_pasien / total_pasien * 100, 1),
+            "pct": round(readmit_pasien / total_pasien * 100, 1),
             "color": "#F59E0B",
-            "sub":   "Pasien rawat inap >1x",
+            "sub": "Pasien rawat inap >1x",
         },
     ]
 
     # ── ALOS by diagnosa (top 10) ─────────────────────────────────────────────
-    alos_rows = query(
-        """SELECT diagnosa,
-                  ROUND(AVG(lama_rawat), 1) AS alos,
-                  COUNT(*) AS cases
-           FROM rawat_inap
-           WHERE lama_rawat IS NOT NULL AND diagnosa IS NOT NULL
-           GROUP BY diagnosa
-           ORDER BY alos DESC
-           LIMIT 10"""
-    )
-    TARGET_ALOS = 4.0  # national standard target
+    TARGET_ALOS = 4.0
     alos_per_poli = []
-    for r in alos_rows:
-        a    = r["alos"] or 0.0
+    
+    for diag, stats in sorted(diag_stats.items(), key=lambda x: (x[1]["lama_rawat"]/x[1]["cases"] if x[1]["cases"] else 0), reverse=True)[:10]:
+        a = round(stats["lama_rawat"] / stats["cases"], 1) if stats["cases"] else 0.0
         diff = round(a - TARGET_ALOS, 1)
         if a > TARGET_ALOS + 1:
             status = "kritis"
@@ -104,37 +110,25 @@ def get_patient_experience():
             status = "tinggi"
         else:
             status = "baik"
+            
         alos_per_poli.append({
-            "poli":   r["diagnosa"],
-            "alos":   a,
+            "poli": diag,
+            "alos": a,
             "target": TARGET_ALOS,
-            "diff":   diff,
-            "cases":  r["cases"],
+            "diff": diff,
+            "cases": stats["cases"],
             "status": status,
-            "fill":   STATUS_COLOR[status],
+            "fill": STATUS_COLOR[status],
         })
 
     # ── Readmission by diagnosa (top 5) ──────────────────────────────────────
-    readmit_diag = query(
-        """SELECT ri.diagnosa, COUNT(*) AS cnt
-           FROM rawat_inap ri
-           WHERE ri.id_pasien IN (
-             SELECT id_pasien FROM rawat_inap
-             GROUP BY id_pasien HAVING COUNT(*) > 1
-           )
-           AND ri.diagnosa IS NOT NULL
-           GROUP BY ri.diagnosa
-           ORDER BY cnt DESC
-           LIMIT 5"""
-    )
-    max_cnt = max((r["cnt"] for r in readmit_diag), default=1) or 1
     readmission_by_poli = []
-    for r in readmit_diag:
-        rate   = round(r["cnt"] / total_pasien * 100, 1)
+    for diag, count in sorted(readmit_diag_counts.items(), key=lambda x: x[1], reverse=True)[:5]:
+        rate = round(count / total_pasien * 100, 1)
         status = "kritis" if rate > 6 else ("tinggi" if rate > 4 else ("normal" if rate > 2 else "baik"))
         readmission_by_poli.append({
-            "poli":   r["diagnosa"],
-            "rate":   rate,
+            "poli": diag,
+            "rate": rate,
             "target": 5.0,
             "status": status,
         })
@@ -151,14 +145,14 @@ def get_patient_experience():
 
     return {
         "kpis": {
-            "total_kunjungan":   total_ri,
-            "alos":              alos,
-            "alos_label":        f"{alos} hr",
-            "readmission_rate":  readmission_rate,
+            "total_kunjungan": total_ri,
+            "alos": alos,
+            "alos_label": f"{alos} hr",
+            "readmission_rate": readmission_rate,
             "readmission_label": f"{readmission_rate}%",
         },
-        "funnel":              funnel,
-        "alos_per_poli":       alos_per_poli,
+        "funnel": funnel,
+        "alos_per_poli": alos_per_poli,
         "readmission_by_poli": readmission_by_poli,
-        "satisfaction":        satisfaction,
+        "satisfaction": satisfaction,
     }

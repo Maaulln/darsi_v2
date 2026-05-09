@@ -364,8 +364,8 @@ export function DashboardPage() {
                 <p className="text-xs text-slate-400">Berdasarkan data pasien aktif</p>
               </div>
               <div className="flex items-center gap-4">
-                <ResponsiveContainer width={130} height={130}>
-                  <PieChart>
+                <div style={{ width: 130, height: 130 }}>
+                  <PieChart width={130} height={130}>
                     <Pie
                       data={data.payment_dist}
                       cx="50%" cy="50%"
@@ -379,7 +379,7 @@ export function DashboardPage() {
                     </Pie>
                     <Tooltip content={<PieTooltip />} />
                   </PieChart>
-                </ResponsiveContainer>
+                </div>
                 <div className="flex-1 space-y-2.5">
                   {data.payment_dist.map((d: any, i: number) => (
                     <div key={i}>

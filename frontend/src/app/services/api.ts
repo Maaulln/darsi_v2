@@ -1,20 +1,29 @@
-const BASE_URL = 'http://localhost:8000/api';
+const BASE_URL = 'http://localhost:8001/api';
 
-async function fetcher(endpoint: string, options: RequestInit = {}) {
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+// Retry logic untuk handle backend yang belum start
+async function fetcher(endpoint: string, options: RequestInit = {}, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(`${BASE_URL}${endpoint}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || 'API request failed');
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(error.detail || 'API request failed');
+      }
+
+      return response.json();
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
   }
-
-  return response.json();
 }
 
 export const apiService = {
