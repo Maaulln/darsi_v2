@@ -47,10 +47,37 @@ export function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // Validasi password minimal "123"
+    if (!password || password.length < 3) {
+      setError('Password minimal 3 karakter (contoh: 123)');
+      return;
+    }
+    if (password !== '123' && password !== 'Admin@12345') {
+      setError('Password salah. Gunakan password: 123');
+      return;
+    }
+
     setLoading(true);
     await new Promise((r) => setTimeout(r, 1100));
     setLoading(false);
-    navigate('/');
+
+    const role = username.toLowerCase();
+    const validRoles = ['dokter', 'perawat', 'apoteker', 'cs', 'manager', 'admin'];
+    
+    if (validRoles.includes(role)) {
+      const roleKey = role === 'admin' ? 'manager' : role;
+      localStorage.setItem('darsi_role', roleKey);
+      
+      // Redirect based on role
+      if (roleKey === 'dokter') navigate('/doctor');
+      else if (roleKey === 'perawat') navigate('/nurse');
+      else if (roleKey === 'apoteker') navigate('/pharmacist');
+      else if (roleKey === 'cs') navigate('/cs');
+      else navigate('/');
+    } else {
+      setError('Username tidak valid. Coba: dokter, perawat, apoteker, cs, atau manager');
+    }
   };
 
   return (
@@ -262,8 +289,9 @@ export function LoginPage() {
             style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }}
           >
             <p className="text-xs font-semibold text-blue-600 mb-1">🔑 Demo Akses</p>
-            <p className="text-xs text-blue-500">Username: <strong>admin</strong> | Password: <strong>darsi2026</strong></p>
-            <p className="text-xs text-blue-400 mt-1">Klik "Masuk" untuk mengakses dashboard demo</p>
+            <p className="text-xs text-blue-500">Username: <strong>dokter / perawat / apoteker / cs / manager</strong></p>
+            <p className="text-xs text-blue-500">Password: <strong>123</strong></p>
+            <p className="text-xs text-blue-400 mt-1">Gunakan salah satu username di atas dengan password <strong>123</strong> untuk masuk ke dashboard masing-masing role.</p>
           </div>
 
           <p className="mt-6 text-center text-xs text-slate-400">

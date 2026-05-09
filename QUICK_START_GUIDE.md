@@ -1,3 +1,15 @@
+installHook.js:1 Error: useAuthentication must be used within an AuthProvider
+    at Vd (head-BhIYt2W7.js:712:15304)
+    at mX (input-Bt-1knRh.js:2:87638)
+    at hy (head-BhIYt2W7.js:735:48033)
+    at b6 (head-BhIYt2W7.js:735:70826)
+    at wW (head-BhIYt2W7.js:735:81136)
+    at HW (head-BhIYt2W7.js:735:116819)
+    at H7e (head-BhIYt2W7.js:735:115858)
+    at u$ (head-BhIYt2W7.js:735:115686)
+    at NW (head-BhIYt2W7.js:735:112496)
+    at OY (head-BhIYt2W7.js:735:124217)
+overrideMethod @ installHook.js:1
 # 🚀 QUICK START GUIDE - DARSI v2.0
 
 **Start dari nol? Ikuti panduan ini step-by-step!**

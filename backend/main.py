@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from routers import dashboard, resources, cost_insurance, patient, ai, superadmin, n8n
+from routers import dashboard, resources, cost_insurance, patient, ai, superadmin, n8n, external_api
 from database import init_db, db_connection
 
 # ── Lifespan Events ───────────────────────────────────────────────────────────
@@ -63,6 +63,7 @@ app.include_router(patient.router)
 app.include_router(ai.router)
 app.include_router(superadmin.router)
 app.include_router(n8n.router)
+app.include_router(external_api.router)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

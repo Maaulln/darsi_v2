@@ -3,24 +3,59 @@ import { Outlet, NavLink, useNavigate } from 'react-router';
 import {
   LayoutDashboard, BedDouble, DollarSign, Users, BarChart2,
   Settings, LogOut, Bell, ChevronLeft, ChevronRight,
-  Search, Calendar, ChevronDown, Activity, X
+  Search, Calendar, ChevronDown, Activity, X,
+  BrainCircuit, HeartPulse, Stethoscope, Video, Map, Pill, ShieldCheck, UserCheck, Headset
 } from 'lucide-react';
 
 const NAVY = '#1E3A5F';
 const CYAN = '#0EA5E9';
 
-const navItems = [
-  { path: '/', icon: LayoutDashboard, label: 'Dashboard', exact: true },
-  { path: '/resources', icon: BedDouble, label: 'Optimasi Sumber Daya' },
-  { path: '/cost-insurance', icon: DollarSign, label: 'Biaya & Asuransi' },
-  { path: '/patient-experience', icon: Users, label: 'Pengalaman Pasien' },
-  { path: '/reports', icon: BarChart2, label: 'Laporan', disabled: true },
-];
+const rolesConfig: Record<string, any> = {
+  dokter: {
+    name: 'Dr. Ahmad Fadhil',
+    title: 'Dokter Spesialis Anak',
+    menus: [
+      { path: '/doctor', icon: BrainCircuit, label: 'Workspace AI (ICD)' },
+      { path: '/patient-experience', icon: Stethoscope, label: 'Pasien & Rekam Medis' }
+    ]
+  },
+  perawat: {
+    name: 'Ns. Siti Aminah',
+    title: 'Kepala Ruangan ICU',
+    menus: [
+      { path: '/nurse', icon: HeartPulse, label: 'Monitoring (Elderly & AI)' }
+    ]
+  },
+  apoteker: {
+    name: 'Budi Santoso, S.Farm',
+    title: 'Apoteker Kepala',
+    menus: [
+      { path: '/pharmacist', icon: Pill, label: 'Apotek & Resep' }
+    ]
+  },
+  cs: {
+    name: 'Rina Wijaya',
+    title: 'Customer Service & Pendaftaran',
+    menus: [
+      { path: '/cs', icon: Headset, label: 'Front Desk & BPJS' }
+    ]
+  },
+  manager: {
+    name: 'Hendra Gunawan',
+    title: 'Direktur Operasional',
+    menus: [
+      { path: '/', icon: LayoutDashboard, label: 'Executive Dashboard', exact: true },
+      { path: '/resources', icon: BedDouble, label: 'Optimasi Sumber Daya' },
+      { path: '/cost-insurance', icon: DollarSign, label: 'Biaya & Asuransi' },
+      { path: '/patient-experience', icon: Users, label: 'Pengalaman Pasien' },
+    ]
+  }
+};
 
 const notifications = [
   { id: 1, type: 'critical', message: 'BOR ICU mencapai 94% — melebihi batas aman', time: '10 mnt lalu' },
   { id: 2, type: 'warning', message: 'Klaim BPJS bulan ini belum diverifikasi (127 klaim)', time: '32 mnt lalu' },
-  { id: 3, type: 'info', message: 'Laporan kinerja April siap diunduh', time: '2 jam lalu' },
+  { id: 3, type: 'info', message: 'Sistem diperbarui ke versi v2.1.0', time: '2 jam lalu' },
 ];
 
 export function Layout() {
@@ -32,7 +67,18 @@ export function Layout() {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
   });
 
+  const roleKey = localStorage.getItem('darsi_role') || 'manager';
+  const currentUser = rolesConfig[roleKey] || rolesConfig['manager'];
+  const navItems = currentUser.menus;
+
+  React.useEffect(() => {
+    if (!localStorage.getItem('darsi_role')) {
+      navigate('/login');
+    }
+  }, [navigate]);
+
   const handleLogout = () => {
+    localStorage.removeItem('darsi_role');
     navigate('/login');
   };
 
@@ -127,8 +173,8 @@ export function Layout() {
           {!collapsed && (
             <div className="px-3 py-2.5 mb-2 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
               <div className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>Masuk sebagai</div>
-              <div className="text-sm text-white font-medium truncate mt-0.5">Dr. Ahmad Fadhil, Sp.A</div>
-              <div className="text-xs mt-0.5" style={{ color: CYAN }}>Direktur Utama</div>
+              <div className="text-sm text-white font-medium truncate mt-0.5">{currentUser.name}</div>
+              <div className="text-xs mt-0.5" style={{ color: CYAN }}>{currentUser.title}</div>
             </div>
           )}
           <button
@@ -236,8 +282,8 @@ export function Layout() {
                 AF
               </div>
               <div className="hidden sm:block">
-                <div className="text-sm font-medium text-slate-700">Dr. Ahmad Fadhil</div>
-                <div className="text-xs text-slate-400">Direktur Utama</div>
+                <div className="text-sm font-medium text-slate-700">{currentUser.name}</div>
+                <div className="text-xs text-slate-400">{currentUser.title}</div>
               </div>
               <ChevronDown size={13} className="text-slate-400" />
             </div>
