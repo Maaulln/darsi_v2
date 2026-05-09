@@ -59,6 +59,7 @@ def login(credentials: Dict[str, str]):
     # Log audit
     create("audit_logs", {
         "user_id": str(user.get("id")),
+        "role": "superadmin",
         "action": "LOGIN",
         "resource": "auth",
         "details": {"email": email}
@@ -138,6 +139,7 @@ def update_config(key: str, data: Dict[str, Any], user_email: str = "admin"):
     # Log audit
     create("audit_logs", {
         "user_id": "superadmin",
+        "role": "superadmin",
         "action": "UPDATE_CONFIG",
         "resource": f"api_config:{key}",
         "details": {"old_value": existing[0].get("value") if existing else None, "new_value": value}
@@ -172,6 +174,7 @@ def create_config(data: Dict[str, Any], user_email: str = "admin"):
     # Log audit
     create("audit_logs", {
         "user_id": "superadmin",
+        "role": "superadmin",
         "action": "CREATE_CONFIG",
         "resource": f"api_config:{key}",
         "details": {"value": value}
@@ -192,6 +195,7 @@ def delete_config(key: str, user_email: str = "admin"):
     # Log audit
     create("audit_logs", {
         "user_id": "superadmin",
+        "role": "superadmin",
         "action": "DELETE_CONFIG",
         "resource": f"api_config:{key}",
         "details": {}
@@ -255,6 +259,7 @@ def create_user(data: Dict[str, str]):
     # Log audit
     create("audit_logs", {
         "user_id": "superadmin",
+        "role": "superadmin",
         "action": "CREATE_USER",
         "resource": f"users:{email}",
         "details": {"email": email, "role": role}
@@ -289,6 +294,7 @@ def update_user(user_id: str, data: Dict[str, Any]):
     # Log audit
     create("audit_logs", {
         "user_id": "superadmin",
+        "role": "superadmin",
         "action": "UPDATE_USER",
         "resource": f"users:{user_id}",
         "details": update_data
@@ -314,6 +320,7 @@ def delete_user(user_id: str):
     # Log audit
     create("audit_logs", {
         "user_id": "superadmin",
+        "role": "superadmin",
         "action": "DELETE_USER",
         "resource": f"users:{user_id}",
         "details": {}
