@@ -45,6 +45,7 @@ function AIPanel({ contextData }: { contextData: any }) {
   const [refreshing, setRefreshing] = useState(false);
   const [insights, setInsights] = useState<string>('Memuat analisis AI...');
   const [confidence, setConfidence] = useState(0);
+  const [modelName, setModelName] = useState('Analisis AI');
 
   const fetchAI = async () => {
     setRefreshing(true);
@@ -52,8 +53,9 @@ function AIPanel({ contextData }: { contextData: any }) {
       const res = await apiService.getAIRecommendation('dashboard', contextData);
       setInsights(res.recommendation);
       setConfidence(res.confidence || 87);
+      if (res.model) setModelName(res.model);
     } catch (err) {
-      setInsights('**Gagal memuat analisis AI.**\n\nPastikan backend dan Ollama berjalan.');
+      setInsights('**Gagal memuat analisis AI.**\n\nPastikan backend dan n8n berjalan.');
     } finally {
       setRefreshing(false);
     }
@@ -107,7 +109,7 @@ function AIPanel({ contextData }: { contextData: any }) {
           </div>
           <div>
             <div className="text-white text-sm font-semibold">Analisis AI</div>
-            <div className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>Gemma-4 · RSI Surabaya</div>
+            <div className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>{modelName} · RSI Surabaya</div>
           </div>
         </div>
         <button

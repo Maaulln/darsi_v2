@@ -1,0 +1,412 @@
+{
+  "name": "DARSI - AI Strategic Analyst (Gemini)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "darsi/query",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [400, 100],
+      "webhookId": "darsi-query-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validasi dan cleaning input query\nconst body = $input.first().json.body || $input.first().json;\n\nif (!body.query || typeof body.query !== 'string') {\n  throw new Error('Field \"query\" wajib diisi dan harus bertipe string.');\n}\n\nconst cleanQuery = body.query.trim().replace(/[<>]/g, '');\n\nif (cleanQuery.length < 3) {\n  throw new Error('Query terlalu pendek. Minimal 3 karakter.');\n}\n\nif (cleanQuery.length > 2000) {\n  throw new Error('Query terlalu panjang. Maksimal 2000 karakter.');\n}\n\nreturn [{\n  json: {\n    query: cleanQuery,\n    timestamp: new Date().toISOString(),\n    requestId: Math.random().toString(36).substring(2, 12)\n  }\n}];"
+      },
+      "id": "node-validate",
+      "name": "Validasi Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 240]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rekam_medis",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "select",
+              "value": "id,tanggal,bor,alos,total_pendapatan,status_tagihan,jumlah_pasien,jumlah_tempat_tidur"
+            },
+            {
+              "name": "order",
+              "value": "tanggal.desc"
+            },
+            {
+              "name": "limit",
+              "value": "30"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-supabase-fetch",
+      "name": "Fetch Data Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge query + data Supabase menjadi satu item\nconst queryData = $('Validasi Query').first().json;\nconst supabaseData = $('Fetch Data Supabase').all().map(i => i.json);\n\n// Flatten jika nested array\nconst records = Array.isArray(supabaseData[0]) ? supabaseData[0] : supabaseData;\n\n// Format sebagai context text untuk embedding\nconst contextText = records.map(r => {\n  return `Tanggal: ${r.tanggal} | BOR: ${r.bor}% | ALOS: ${r.alos} hari | Pendapatan: Rp${r.total_pendapatan?.toLocaleString('id-ID') || 0} | Status Tagihan: ${r.status_tagihan} | Pasien: ${r.jumlah_pasien} | Tempat Tidur: ${r.jumlah_tempat_tidur}`;\n}).join('\\n');\n\nreturn [{\n  json: {\n    query: queryData.query,\n    timestamp: queryData.timestamp,\n    requestId: queryData.requestId,\n    rawData: records,\n    contextText: contextText\n  }\n}];"
+      },
+      "id": "node-merge",
+      "name": "Merge Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 380]
+    },
+    {
+      "parameters": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"models/text-embedding-004\",\n  \"content\": {\n    \"parts\": [\n      { \"text\": {{ JSON.stringify($json.query) }} }\n    ]\n  },\n  \"taskType\": \"RETRIEVAL_QUERY\"\n}",
+        "options": {}
+      },
+      "id": "node-embed-query",
+      "name": "Gemini Embed Query",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, 520]
+    },
+    {
+      "parameters": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"models/text-embedding-004\",\n  \"content\": {\n    \"parts\": [\n      { \"text\": {{ JSON.stringify($('Merge Data').first().json.contextText) }} }\n    ]\n  },\n  \"taskType\": \"RETRIEVAL_DOCUMENT\"\n}",
+        "options": {}
+      },
+      "id": "node-embed-context",
+      "name": "Gemini Embed Context",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [600, 520]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ambil embedding dari kedua node\nconst queryEmbedding = $('Gemini Embed Query').first().json?.embedding?.values;\nconst contextEmbedding = $('Gemini Embed Context').first().json?.embedding?.values;\nconst mergedData = $('Merge Data').first().json;\n\nif (!queryEmbedding) throw new Error('Gagal mendapatkan embedding query dari Gemini.');\nif (!contextEmbedding) throw new Error('Gagal mendapatkan embedding context dari Gemini.');\n\nreturn [{\n  json: {\n    ...mergedData,\n    queryEmbedding: queryEmbedding,\n    contextEmbedding: contextEmbedding\n  }\n}];"
+      },
+      "id": "node-merge-embeddings",
+      "name": "Merge Embeddings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 660]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SURREALDB_URL }}/sql",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Basic {{ $env.SURREALDB_BASIC_AUTH }}"
+            },
+            {
+              "name": "NS",
+              "value": "={{ $env.SURREALDB_NS }}"
+            },
+            {
+              "name": "DB",
+              "value": "={{ $env.SURREALDB_DB }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "body": "=UPSERT rekam_medis_embedding SET\n  context_text = {{ JSON.stringify($json.contextText) }},\n  embedding = {{ JSON.stringify($json.contextEmbedding) }},\n  raw_data = {{ JSON.stringify($json.rawData) }},\n  updated_at = time::now()\nWHERE id = 'latest_batch';",
+        "options": {}
+      },
+      "id": "node-surrealdb-upsert",
+      "name": "Upsert SurrealDB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [160, 800]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SURREALDB_URL }}/sql",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Basic {{ $env.SURREALDB_BASIC_AUTH }}"
+            },
+            {
+              "name": "NS",
+              "value": "={{ $env.SURREALDB_NS }}"
+            },
+            {
+              "name": "DB",
+              "value": "={{ $env.SURREALDB_DB }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "body": "=SELECT *, vector::similarity::cosine(embedding, {{ JSON.stringify($json.queryEmbedding) }}) AS score FROM rekam_medis_embedding ORDER BY score DESC LIMIT 5;",
+        "options": {}
+      },
+      "id": "node-surrealdb-search",
+      "name": "Vector Search SurrealDB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 800]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Gabungkan hasil vector search menjadi context untuk AI Agent\nconst embeddingData = $('Merge Embeddings').first().json;\nconst searchResults = $('Vector Search SurrealDB').first().json;\n\n// Ekstrak results dari response SurrealDB\nlet ragContext = '';\ntry {\n  const results = Array.isArray(searchResults)\n    ? searchResults[0]?.result || []\n    : searchResults?.result || [];\n\n  ragContext = results.map((r, i) => {\n    return `[Dokumen ${i+1} - Score: ${(r.score || 0).toFixed(4)}]\\n${r.context_text || JSON.stringify(r.raw_data)}`;\n  }).join('\\n\\n');\n} catch(e) {\n  // Fallback ke contextText langsung jika vector search gagal\n  ragContext = embeddingData.contextText;\n}\n\nreturn [{\n  json: {\n    query: embeddingData.query,\n    timestamp: embeddingData.timestamp,\n    requestId: embeddingData.requestId,\n    ragContext: ragContext || embeddingData.contextText,\n    rawData: embeddingData.rawData\n  }\n}];"
+      },
+      "id": "node-build-context",
+      "name": "Build RAG Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 960]
+    },
+    {
+      "parameters": {
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"system_instruction\": {\n    \"parts\": [\n      {\n        \"text\": \"Kamu adalah AI Senior Analis Strategis untuk Rumah Sakit DARSI (Sistem Informasi Manajemen Rumah Sakit).\\nTugasmu adalah menganalisis data operasional rumah sakit dan memberikan insight dalam format JSON murni.\\n\\nINSTRUKSI KHUSUS:\\n1. Analisis data termasuk BOR (Bed Occupancy Rate), ALOS (Lama Rawat), Pendapatan, dan Status Tagihan.\\n2. Identifikasi tren atau masalah kritis jika BOR > 85% atau ALOS > 5 hari.\\n3. Gunakan Bahasa Indonesia yang profesional dan lugas.\\n4. JANGAN berikan teks penjelasan di luar blok JSON. Kamu hanya boleh merespons dengan valid JSON.\\n\\nSTRUKTUR JSON YANG WAJIB DIIKUTI:\\n{\\n  \\\"status\\\": \\\"success\\\",\\n  \\\"summary\\\": \\\"Ringkasan eksekutif 1-2 kalimat.\\\",\\n  \\\"analysis\\\": {\\n    \\\"bor_status\\\": \\\"Normal/Kritis/Peringatan\\\",\\n    \\\"revenue_trend\\\": \\\"Meningkat/Menurun/Stabil\\\",\\n    \\\"critical_findings\\\": [\\n      {\\n        \\\"impact_level\\\": \\\"High/Medium/Low\\\",\\n        \\\"issue\\\": \\\"Deskripsi temuan kritis\\\"\\n      }\\n    ]\\n  },\\n  \\\"recommendations\\\": [\\n    \\\"Rekomendasi tindakan 1\\\",\\n    \\\"Rekomendasi tindakan 2\\\",\\n    \\\"Rekomendasi tindakan 3\\\"\\n  ],\\n  \\\"projection\\\": \\\"Prediksi singkat operasional untuk 7 hari ke depan.\\\",\\n  \\\"metadata\\\": {\\n    \\\"confidence_score\\\": 0.95,\\n    \\\"data_source\\\": \\\"SurrealDB Vector Search\\\"\\n  }\\n}\"\n      }\n    ]\n  },\n  \"contents\": [\n    {\n      \"role\": \"user\",\n      \"parts\": [\n        {\n          \"text\": \"CONTEXT (Ditemukan dari RAG/SurrealDB):\\n{{ $json.ragContext }}\\n\\nUSER QUERY:\\n{{ $json.query }}\"\n        }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"temperature\": 0.2,\n    \"topK\": 20,\n    \"topP\": 0.8,\n    \"maxOutputTokens\": 2048,\n    \"responseMimeType\": \"application/json\"\n  }\n}",
+        "options": {}
+      },
+      "id": "node-gemini-agent",
+      "name": "Gemini AI Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, 1100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse dan validasi output JSON dari Gemini\nconst geminiResponse = $input.first().json;\n\nlet analysisJson = null;\nlet rawText = '';\n\ntry {\n  // Ekstrak text dari Gemini response structure\n  rawText = geminiResponse?.candidates?.[0]?.content?.parts?.[0]?.text || '';\n\n  if (!rawText) {\n    throw new Error('Gemini tidak mengembalikan response text.');\n  }\n\n  // Bersihkan jika ada markdown fence\n  const cleaned = rawText\n    .replace(/```json\\n?/g, '')\n    .replace(/```\\n?/g, '')\n    .trim();\n\n  analysisJson = JSON.parse(cleaned);\n\n  // Validasi struktur wajib\n  if (!analysisJson.status || !analysisJson.summary || !analysisJson.analysis) {\n    throw new Error('Struktur JSON tidak lengkap. Field status, summary, analysis wajib ada.');\n  }\n\n} catch (e) {\n  // Kembalikan error JSON terstruktur\n  return [{\n    json: {\n      status: 'error',\n      summary: 'Gagal memproses analisis AI.',\n      error: e.message,\n      raw_response: rawText,\n      timestamp: new Date().toISOString()\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...analysisJson,\n    _meta: {\n      requestId: $('Build RAG Context').first().json.requestId,\n      processedAt: new Date().toISOString(),\n      model: 'gemini-2.0-flash'\n    }\n  }\n}];"
+      },
+      "id": "node-validate-output",
+      "name": "Validasi Output JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 1240]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "X-DARSI-RequestId",
+                "value": "={{ $json._meta?.requestId || 'unknown' }}"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "node-http-response",
+      "name": "HTTP Response ke Dashboard",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [400, 1380]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [{ "node": "Validasi Query", "type": "main", "index": 0 }]
+      ]
+    },
+    "Validasi Query": {
+      "main": [
+        [
+          { "node": "Merge Data", "type": "main", "index": 0 },
+          { "node": "Fetch Data Supabase", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Fetch Data Supabase": {
+      "main": [
+        [{ "node": "Merge Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Data": {
+      "main": [
+        [
+          { "node": "Gemini Embed Query", "type": "main", "index": 0 },
+          { "node": "Gemini Embed Context", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Gemini Embed Query": {
+      "main": [
+        [{ "node": "Merge Embeddings", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gemini Embed Context": {
+      "main": [
+        [{ "node": "Merge Embeddings", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Embeddings": {
+      "main": [
+        [
+          { "node": "Upsert SurrealDB", "type": "main", "index": 0 },
+          { "node": "Vector Search SurrealDB", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Upsert SurrealDB": {
+      "main": [
+        [{ "node": "Build RAG Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Vector Search SurrealDB": {
+      "main": [
+        [{ "node": "Build RAG Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build RAG Context": {
+      "main": [
+        [{ "node": "Gemini AI Agent", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gemini AI Agent": {
+      "main": [
+        [{ "node": "Validasi Output JSON", "type": "main", "index": 0 }]
+      ]
+    },
+    "Validasi Output JSON": {
+      "main": [
+        [{ "node": "HTTP Response ke Dashboard", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": ["DARSI", "Gemini", "RAG", "SurrealDB", "Healthcare"],
+  "pinData": {},
+  "_readme": {
+    "description": "Workflow DARSI AI Strategic Analyst menggunakan Gemini 2.0 Flash (LLM) dan text-embedding-004 (Embedding).",
+    "env_variables_required": [
+      "GEMINI_API_KEY — API key dari Google AI Studio (aistudio.google.com)",
+      "SUPABASE_URL — URL project Supabase, contoh: https://xyz.supabase.co",
+      "SUPABASE_ANON_KEY — Anon key dari Supabase dashboard",
+      "SURREALDB_URL — URL SurrealDB, contoh: http://localhost:8000",
+      "SURREALDB_BASIC_AUTH — Base64 dari 'user:password', contoh: cm9vdDpyb290",
+      "SURREALDB_NS — Namespace SurrealDB, contoh: darsi",
+      "SURREALDB_DB — Database SurrealDB, contoh: rumahsakit"
+    ],
+    "surrealdb_setup_queries": [
+      "DEFINE NAMESPACE darsi;",
+      "USE NS darsi;",
+      "DEFINE DATABASE rumahsakit;",
+      "USE DB rumahsakit;",
+      "DEFINE TABLE rekam_medis_embedding SCHEMAFULL;",
+      "DEFINE FIELD context_text ON TABLE rekam_medis_embedding TYPE string;",
+      "DEFINE FIELD embedding ON TABLE rekam_medis_embedding TYPE array<float>;",
+      "DEFINE FIELD raw_data ON TABLE rekam_medis_embedding TYPE array;",
+      "DEFINE FIELD updated_at ON TABLE rekam_medis_embedding TYPE datetime;",
+      "DEFINE INDEX idx_embedding ON TABLE rekam_medis_embedding FIELDS embedding MTREE DIMENSION 768 DIST COSINE;"
+    ],
+    "webhook_example_request": {
+      "method": "POST",
+      "url": "https://your-n8n.com/webhook/darsi/query",
+      "headers": { "Content-Type": "application/json" },
+      "body": { "query": "Bagaimana kondisi BOR dan pendapatan rumah sakit minggu ini?" }
+    },
+    "gemini_models_used": {
+      "llm": "gemini-2.0-flash",
+      "embedding": "text-embedding-004",
+      "embedding_dimension": 768
+    }
+  }
+}
